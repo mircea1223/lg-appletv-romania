@@ -9,7 +9,7 @@ Procedura păstrează aplicația originală și cere acces root doar pe durata o
 Comenzile sunt pentru Terminal pe macOS sau Linux. Descarcă proiectul și intră în directorul lui:
 
 ```sh
-git clone https://github.com/precupmircea/lg-appletv-romania.git
+git clone https://github.com/mircea1223/lg-appletv-romania.git
 cd lg-appletv-romania
 ```
 
