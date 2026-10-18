@@ -1,0 +1,26 @@
+{
+  "guideDate": "2026-10-18",
+  "methodVerifiedOn": {
+    "model": "LG OLED77C31LA",
+    "firmware": "43.21.71",
+    "webOSSDK": "11.2.0",
+    "AppleTV": "16.2.5"
+  },
+  "methodRuntimeResult": "Authentication and subscription content playback confirmed by owner",
+  "portableToolsRuntimeValidation": "Offline only; fresh portable export/apply/restore tools not executed on TV",
+  "upstream": {
+    "repository": "https://github.com/throwaway96/slopbro",
+    "commit": "21023d56ca424607bb03d2939609cc658c655fc7",
+    "license": "AGPL-3.0-or-later"
+  },
+  "bundleContents": "Guide, sources and license only; no complete Apple app resources, firmware, credentials, SSH keys or SSAP pairing keys",
+  "tvChangesDuringGuidePreparation": false,
+  "offlineValidation": [
+    "Patch output equals the two SHA256 values used by the working C3 correction",
+    "Generated export/apply/restore Python and JavaScript parse",
+    "Eleven mocked transaction scenarios including rollback and committed cleanup errors",
+    "Pinned upstream modification refused before bundle creation",
+    "Unsafe archive traversal refused before extraction",
+    "Static-only archive successfully verified and extracted"
+  ]
+}

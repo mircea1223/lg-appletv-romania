@@ -1,0 +1,26 @@
+# Private device/application data and locally generated packages
+backup/
+original/
+patched/
+slopbro-source/
+*-bundle/
+*.key
+*.pem
+*.p12
+*.pfx
+*.ipk
+*.tar
+*.tar.gz
+*.tgz
+*.img
+*.nfz
+*.so
+*.so.*
+AppleTV
+payload-*.js
+res/
+.ssh/
+__pycache__/
+*.pyc
+.DS_Store
+compatibility.json

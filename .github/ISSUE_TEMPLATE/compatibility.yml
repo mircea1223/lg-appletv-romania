@@ -1,0 +1,48 @@
+name: Raport de compatibilitate LG
+description: Raportează configurația și rezultatul unei verificări; fără fișiere Apple sau date de cont.
+title: "[Compatibilitate] model și firmware"
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Numai configurația C3 documentată are autentificare și redare confirmate. Nu publica arhive Apple, chei, parole, passphrase-uri, coduri QR sau identificatori unici ai dispozitivului.
+  - type: input
+    id: model
+    attributes:
+      label: Model complet
+      placeholder: OLED77C31LA
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware
+    validations:
+      required: true
+  - type: input
+    id: sdk
+    attributes:
+      label: Versiune SDK webOS
+      description: SDK-ul raportat de ares-device, nu doar numele comercial webOS.
+  - type: input
+    id: apple-version
+    attributes:
+      label: Versiunea aplicației Apple TV originale
+  - type: dropdown
+    id: result
+    attributes:
+      label: Ce ai verificat efectiv
+      options:
+        - Doar raportul offline al fișierelor
+        - Meniurile aplicației
+        - Autentificare reușită
+        - Autentificare și redare cu abonament reușite
+        - Eroare
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Rezultat sau mesaj de eroare
+      description: Poți atașa raportul check_compatibility.py. Nu atașa loguri complete, fișierele aplicației sau coduri de autentificare.
