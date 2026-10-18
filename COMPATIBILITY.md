@@ -14,7 +14,9 @@ Kitul public este o reorganizare a operațiilor efectuate în cazul documentat. 
 
 ## Verificarea simplă a fișierelor
 
-După exportul privat și extragerea lui conform tutorialului, rulează din rădăcina kitului:
+Asistentul `install.py` face verificarea automat și salvează raportul `compatibility.json` în directorul privat `backup/session-...`. Verifică modelul, firmware-ul și SDK-ul prin conexiunea LG înainte de orice operație root. Dacă diferă, nu încearcă aplicarea.
+
+Comanda de mai jos este pentru exportul manual din [ghidul avansat](ADVANCED.md), rulat din rădăcina kitului:
 
 ```sh
 python3 check_compatibility.py \
@@ -41,6 +43,16 @@ python3 check_compatibility.py \
 5. **Conexiunea și testul real.** Developer Mode asigură transferul SSH; nu oferă singur privilegiile aplicației originale. Verifică SDK-ul și firmware-ul cu `ares-device --system-info --device tv`. Nu folosi denumirea comercială `26` ca înlocuitor automat pentru argumentul testat `--webos-version 11`. După aplicare trebuie verificate codul QR, autentificarea, un episod complet cu abonament, pauza, reluarea și derularea. [Instrucțiunile LG pentru Developer Mode și informațiile dispozitivului](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app).
 
 Nu elimina verificările SHA256, de identitate, montare sau permisiuni pentru a forța un alt model. O diferență trebuie înțeleasă și o variantă nouă trebuie testată separat. Un update Apple poate înlocui corecția sau poate face corecția inutilă; fișierele noi necesită analiză înainte de reutilizarea kitului.
+
+## Testele asistentului
+
+Testele folosesc comenzi simulate și fișiere sintetice. Nu se conectează la TV și nu execută loaderul:
+
+```sh
+python3 -m unittest discover -s tests
+```
+
+Aceste teste verifică ordinea pașilor și oprirea la erori. Nu confirmă autentificarea sau redarea pe un televizor nou.
 
 ## Cum se raportează un alt model
 
