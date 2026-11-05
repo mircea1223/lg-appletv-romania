@@ -36,7 +36,7 @@ function inventory(){
  const imageNames=fs.readdirSync(images).sort();if(JSON.stringify(imageNames)!==JSON.stringify(['data.img','data.img.md5']))fail('Unexpected registered image files');
  return{rows,total,files,sha256:crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex')};
 }
-function report(name,value){const fd=fs.openSync(stage+'/'+name,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW,0o600);try{fs.writeFileSync(fd,JSON.stringify(value,null,2)+'\n');fs.fchownSync(fd,6303,5000);fs.fchmodSync(fd,0o600);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}}
+function report(name,value){const fd=fs.openSync(stage+'/'+name,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW,0o600);try{fs.writeFileSync(fd,JSON.stringify(value,null,2)+'\n');fs.fchownSync(fd,__DEVELOPER_UID__,5000);fs.fchmodSync(fd,0o600);fs.fsyncSync(fd)}finally{fs.closeSync(fd)}}
 function syncStage(){const fd=fs.openSync(stage,'r');try{fs.fsyncSync(fd)}finally{fs.closeSync(fd)}}
 function run(){let safeStage=false,code=1;try{
  if(process.getuid()!==0||__dirname!==stage||!/^\/media\/internal\/downloads\/[a-z0-9][a-z0-9-]{10,127}$/.test(stage)||!/^[a-f0-9]{64}$/.test(planSHA))fail('Unexpected root export context');
@@ -55,7 +55,7 @@ function run(){let safeStage=false,code=1;try{
  const now=safeDirectory(stage,true);if(now.dev!==stageInfo.dev||now.ino!==stageInfo.ino)fail('Export stage identity changed');noMounts(stage);
  const portable=snapshot.rows.map(r=>({path:r.path.slice(1),kind:r.kind,sha256:r.sha256}));
  const archiveSHA=digest(archive),sourceSHA256={};for(const path of inputs){const selected=portable.filter(r=>r.path===path.slice(1)||r.path.startsWith(path.slice(1)+'/'));sourceSHA256[path.slice(1)]=selected.length===1&&selected[0].kind==='file'?selected[0].sha256:crypto.createHash('sha256').update(JSON.stringify(selected)).digest('hex')}
- fs.chownSync(archive,6303,5000);fs.chmodSync(archive,0o600);
+ fs.chownSync(archive,__DEVELOPER_UID__,5000);fs.chmodSync(archive,0o600);
  report('result.json',{status:'success',kind:'lg-appletv-ro-export-v1',appId:'com.apple.appletv',stage,archivePath:archive,archiveBytes:archiveInfo.size,archiveSHA256:archiveSHA,sourceSHA256,sourceInventorySHA256:crypto.createHash('sha256').update(JSON.stringify(portable)).digest('hex'),sourceFileCount:snapshot.files,sourceBytes:snapshot.total,sourcePaths:inputs.map(path=>path.slice(1)),preservedNativeFlags:{id:appinfo.id,version:appinfo.version,main:appinfo.main,type:appinfo.type,trustLevel:appinfo.trustLevel,privilegedJail:appinfo.privilegedJail,internalInstallationOnly:appinfo.internalInstallationOnly,fileSystemType:appinfo.fileSystemType},originalFilesModified:false,originalDataRead:false,databaseRecordsRead:false,persistentRootInstalled:false,installedPersistentRoot:false,installedHomebrew:false,stageRetainedUntilLocalVerification:true});
  fs.chmodSync(stage,0o711);syncStage();console.log('Static Apple TV export complete; archive and result retained for verified retrieval.');code=0;
  }catch(error){if(safeStage){try{safeDirectory(stage,true);report('error.json',{status:'failed',kind:'lg-appletv-ro-export-v1',error:error.message,originalFilesModified:false,originalDataRead:false,databaseRecordsRead:false,persistentRootInstalled:false,installedPersistentRoot:false,stageRetained:true});fs.chmodSync(stage,0o711);syncStage()}catch(reportError){console.error('Unable to export error receipt: '+reportError.message)}}console.error('Static Apple TV export failed: '+error.message)

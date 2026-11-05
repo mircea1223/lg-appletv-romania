@@ -131,7 +131,13 @@ def replace_once(text, name, before, after):
     return text.replace(before, after, 1)
 
 
-def build(source, output):
+def build(source, output, profile=None):
+    protected_hashes, version = PROTECTED_FILES, "16.2.5"
+    if profile is not None:
+        if profile != "c2":
+            raise PatchError("Unknown patch profile")
+        from c2_profile import PROTECTED, VERSION
+        protected_hashes, version = PROTECTED, VERSION
     source = source.resolve(strict=True)
     if not source.is_dir():
         raise PatchError("--source must name the original application folder")
@@ -147,11 +153,11 @@ def build(source, output):
     }
     protected = {
         name: guarded_read(source, name, expected)
-        for name, expected in PROTECTED_FILES.items()
+        for name, expected in protected_hashes.items()
     }
     appinfo = json.loads(protected["appinfo.json"].decode("utf-8"))
     if (appinfo.get("id"), appinfo.get("version"), appinfo.get("main")) != (
-        "com.apple.appletv", "16.2.5", "AppleTV"
+        "com.apple.appletv", version, "AppleTV"
     ):
         raise PatchError("Unexpected application identity or version")
 
@@ -174,7 +180,7 @@ def build(source, output):
     manifest = {
         "formatVersion": 1,
         "kind": "lg-appletv-romania-native-js-compatibility",
-        "application": {"id": "com.apple.appletv", "version": "16.2.5", "main": "AppleTV"},
+        "application": {"id": "com.apple.appletv", "version": version, "main": "AppleTV"},
         "files": [
             {
                 "path": "res/" + name,
@@ -187,7 +193,7 @@ def build(source, output):
         ],
         "protectedFiles": [
             {"path": name, "sha256": expected, "modified": False}
-            for name, expected in PROTECTED_FILES.items()
+            for name, expected in protected_hashes.items()
         ] + [{"path": "res/4239.js", "sha256": ORIGINAL_JS["4239.js"], "modified": False}],
         "authenticationAndDRMUnchanged": True,
         "diagnosticHooksInserted": False,
@@ -219,9 +225,10 @@ def main():
                         help="Original application directory containing AppleTV, appinfo.json and res/")
     parser.add_argument("--output", type=Path, required=True,
                         help="New output directory outside the original application folder")
+    parser.add_argument("--profile", choices=["c2"], help="Experimental exact C2 input profile")
     args = parser.parse_args()
     try:
-        manifest = build(args.source, args.output)
+        manifest = build(args.source, args.output, args.profile)
     except (PatchError, OSError, UnicodeError, ValueError) as error:
         print("Refused: " + str(error), file=sys.stderr)
         return 1

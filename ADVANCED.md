@@ -2,6 +2,8 @@
 
 **Pentru cine este:** configurația verificată este LG OLED77C31LA (C3), firmware 43.21.71, SDK webOS 11.2.0 și Apple TV 16.2.5 cu fișierele originale cunoscute. Pentru alte configurații, vezi [compatibilitatea](COMPATIBILITY.md) înainte de a continua. Acesta este un kit experimental: reparația inițială a funcționat pe C3, dar instrumentele portabile au fost testate numai offline.
 
+Exemplele de mai jos sunt pentru profilul C3 cu UID 6303. Dacă `id -u` raportează 6322, folosește `--developer-uid 6322` la pregătirea fiecărui bundle. Pentru profilul exact C2 documentat în [COMPATIBILITY.md](COMPATIBILITY.md), folosește loaderul cu `--webos-version 10`, UID 6322 și adaugă `--profile c2` la `check_compatibility.py`, `build_patch.py` și fiecare comandă `prepare_bundle.py`. Deschide Apple TV înainte de export. Nu combina fișiere din cele două profiluri. Fluxul simplificat `python3 install.py` selectează automat profilul și argumentele.
+
 Procedura păstrează aplicația originală și cere acces root doar pe durata operațiilor. Modificarea aplicației rămâne după încheierea accesului root. Pentru vizionare ai în continuare nevoie de propriul cont și dreptul de acces la conținut.
 
 ## Pregătire, o singură dată
@@ -57,7 +59,7 @@ Acest pas exportă fișierele statice ale aplicației, fără datele contului. P
 
 ```sh
 python3 tools/prepare_bundle.py export \
-  --upstream slopbro-source --output export-bundle
+  --upstream slopbro-source --output export-bundle --developer-uid 6303
 
 (cd export-bundle && python3 slopbro.py \
   --webos-version 11 --asset-source dir --debug "$TV_IP")
@@ -103,7 +105,7 @@ node --check patched/res/app.js
 node --check patched/res/main.js
 
 python3 tools/prepare_bundle.py apply \
-  --upstream slopbro-source \
+  --upstream slopbro-source --developer-uid 6303 \
   --original original/media/cryptofs/apps/usr/palm/applications/com.apple.appletv \
   --cleanup-export export-bundle/bundle.json \
   --archive backup/apple-tv-original.tar --output apply-bundle
@@ -146,7 +148,7 @@ Folosește propriul backup verificat. Restaurarea readuce numai cele două fiși
 
 ```sh
 python3 tools/prepare_bundle.py restore \
-  --upstream slopbro-source \
+  --upstream slopbro-source --developer-uid 6303 \
   --original original/media/cryptofs/apps/usr/palm/applications/com.apple.appletv \
   --output restore-bundle
 

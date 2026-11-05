@@ -1,0 +1,17 @@
+{
+  "formatVersion": 1,
+  "profiles": [
+    {
+      "modelName": "OLED77C31LA",
+      "firmwareVersion": "43.21.71",
+      "sdkVersion": "11.2.0",
+      "developerModeUids": [6303, 6322]
+    },
+    {
+      "modelName": "OLED77C21LA",
+      "firmwareVersion": "33.31.68",
+      "sdkVersion": "10.3.1",
+      "developerModeUids": [6322]
+    }
+  ]
+}

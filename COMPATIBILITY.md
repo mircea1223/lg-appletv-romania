@@ -1,20 +1,27 @@
 # Compatibilitatea cu alte televizoare LG
 
-**Autentificarea și redarea conținutului cu abonament au fost confirmate pe un singur televizor:** LG C3 **OLED77C31LA**, firmware **43.21.71**, SDK webOS **11.2.0**, aplicație Apple TV originală **16.2.5**. Pe acel televizor, SDK-ul este asociat cu denumirea comercială webOS 26. Confirmarea aparține utilizatorului care a testat televizorul; instrumentul offline nu testează redarea.
+**Autentificarea și redarea conținutului cu abonament au fost confirmate pe un singur televizor:** LG C3 **OLED77C31LA**, firmware **43.21.71**, SDK webOS **11.2.0**, aplicație Apple TV originală **16.2.5**. Există și un profil experimental C2 **OLED77C21LA / 33.31.68 / SDK 10.3.1 / Apple TV 16.2.4**, cu export și aplicare confirmate prin rapoarte live. Redarea, persistența după restart și restaurarea C2 nu sunt încă confirmate. Instrumentele offline nu testează redarea.
 
 | Configurație | Ce știm |
 | --- | --- |
 | OLED77C31LA, firmware 43.21.71, SDK 11.2.0, pachetul original verificat | Procedura inițială a funcționat; autentificare și redare confirmate de proprietar. |
 | Alt exemplar, diagonală sau variantă regională C3 | Compatibilitate neverificată; numele C3 nu este suficient. |
-| C1, C2, C4, C5, alte OLED, QNED sau LCD LG | Compatibilitate neverificată; nu există o listă de suport confirmat pentru aceste modele. |
+| OLED77C21LA, firmware 33.31.68, SDK 10.3.1, Apple TV 16.2.4 | Export și aplicare confirmate prin rapoarte; redarea și restaurarea live neverificate. |
+| C1, alte C2, C4, C5, alte OLED, QNED sau LCD LG | Compatibilitate neverificată. |
 | Același model după actualizarea firmware-ului sau a aplicației | Este necesară o nouă verificare. |
 | Aplicația Apple TV originală lipsește | Acest kit nu o instalează și nu furnizează un IPK Apple. |
 
-Kitul public este o reorganizare a operațiilor efectuate în cazul documentat. Instrumentele portabile au fost verificate offline, fără a fi rulate de la cap la coadă pe alt televizor. Nu trata existența acestui kit ca pe o certificare pentru alte modele.
+Asistentul unificat este testat offline pentru ambele profiluri, inclusiv aplicare/restaurare simulate și refuzul backupurilor din alt profil. Operațiile C2 live au fost executate prin pachetele avansate generate local. Nu trata existența kitului ca pe o certificare pentru alte modele.
+
+## UID-ul Developer Mode
+
+`developer_mode_profiles.json` leagă UID-urile acceptate de combinația exactă model / firmware / SDK. Asistentul citește UID-ul real al utilizatorului `prisoner` înainte de orice operație root, îl acceptă numai dacă apare în profilul unic corespunzător și îl include în pachetele temporare. Nu edita un profil pentru un model sau firmware neconfirmat: UID-ul este folosit pentru drepturile asupra backupului și rapoartelor preluate de pe TV.
+
+Profilurile incluse permit UID 6303 sau 6322 pentru C3 și UID 6322 pentru C2. Modelul real selectează profilul înainte de validarea UID-ului. Adăugarea unui model în JSON nu adaugă suport de patch: metadatele, hash-urile și layoutul sunt validate separat. UID-ul este recitit înainte de fiecare operație root.
 
 ## Verificarea simplă a fișierelor
 
-Asistentul `install.py` face verificarea automat și salvează raportul `compatibility.json` în directorul privat `backup/session-...`. Verifică modelul, firmware-ul și SDK-ul prin conexiunea LG înainte de orice operație root. Dacă diferă, nu încearcă aplicarea.
+Asistentul `install.py` face verificarea automat și salvează raportul `compatibility.json` în directorul privat `backup/session-...`. Verifică modelul, firmware-ul și SDK-ul prin conexiunea LG înainte de orice operație root. Dacă nu corespund unuia dintre cele două profiluri exacte, nu încearcă aplicarea.
 
 Comanda de mai jos este pentru exportul manual din [ghidul avansat](ADVANCED.md), rulat din rădăcina kitului:
 
@@ -34,11 +41,13 @@ python3 check_compatibility.py \
 
 `suppliedMetadataMatchesReference` compară numai valorile introduse de tine. Chiar dacă este `true`, verificatorul păstrează `playbackConfirmed: false` pentru televizorul curent. Nu verifică singur firmware-ul, accesul root, montările sau funcționarea contului. Cele cinci amprente nu dovedesc egalitatea tuturor fișierelor aplicației; de aceea raportul nu pretinde că întregul pachet a fost verificat.
 
+Pentru exportul C2 folosește și `--profile c2`. Cele trei resurse JS sunt identice cu referința C3, însă executabilul, manifestul și imaginea instalată au hash-uri C2 separate, fixate în `tools/c2_profile.py`.
+
 ## Condițiile suplimentare pentru alt LG
 
 1. **Pachetul original și identitatea nativă.** Aplicația trebuie să existe sub ID-ul `com.apple.appletv`, cu executabilul `AppleTV`, tip `native`, `trustLevel: trusted` și `privilegedJail: true`. Un număr de versiune egal, fără amprente egale, nu este suficient. O clonă cu alt ID a încărcat meniurile, dar a eșuat la autentificare în cazul nostru. Păstrează executabilul, bibliotecile native, manifestul, imaginea instalată și datele contului.
 2. **Mecanismul root pe firmware-ul exact.** Loaderul provine din commitul SlopBro fixat în tutorial. Compatibilitatea loaderului și compatibilitatea corecției Apple sunt două verificări separate. Proiectul original raportează utilizări pe mai multe versiuni webOS, dar acestea nu confirmă această procedură pe fiecare model. Varianta standard instalează persistență; kitul folosește module proprii, fără `autoroot.sh`. [Sursa SlopBro fixată](https://github.com/throwaway96/slopbro/blob/21023d56ca424607bb03d2939609cc658c655fc7/README.md).
-3. **Structura de fișiere și permisiunile.** Tranzacția cere deja un overlay inscriptibil la `/media/cryptofs/apps/usr/palm/applications/com.apple.appletv`, cu `upperdir=/media/data/data/com.apple.appletv`. Cere `res` cu UID 0, GID 5000, mod `0775`, iar resursele cu UID 0, GID 5000, mod `0644`. Nu creează un overlay nou și nu remontează firmware-ul pentru a adapta alt TV.
+3. **Structura de fișiere și permisiunile.** Ambele profiluri cer deja un overlay inscriptibil la `/media/cryptofs/apps/usr/palm/applications/com.apple.appletv`. C3 cere `upperdir=/media/data/data/com.apple.appletv`. C2 cere exact lowerdir `/media/squashfs/apps/com.apple.appletv/usr/palm/applications/com.apple.appletv`, upperdir egal cu calea de instalare și workdir `/media/squashfs/work/com.apple.appletv`. Ambele cer `res` cu UID 0, GID 5000, mod `0775`, iar resursele cu UID 0, GID 5000, mod `0644`. Nu creează un overlay nou și nu remontează firmware-ul.
 4. **Mediul modulului temporar.** Sunt verificate directoarele de lucru, identitatea procesului original prin `/proc`, API-urile Node de fișiere sigure, `O_NOFOLLOW` și `O_DIRECTORY`, precum și locația rezultatului în `/media/developer/temp`. Exportul mai cere `/bin/tar`, `/bin/df`, cel puțin 256 MiB liberi și spațiu suplimentar pentru copie. Layoutul, UID-urile sau API-urile diferite necesită o analiză separată, nu relaxarea verificărilor.
 5. **Conexiunea și testul real.** Developer Mode asigură transferul SSH; nu oferă singur privilegiile aplicației originale. Verifică SDK-ul și firmware-ul cu `ares-device --system-info --device tv`. Nu folosi denumirea comercială `26` ca înlocuitor automat pentru argumentul testat `--webos-version 11`. După aplicare trebuie verificate codul QR, autentificarea, un episod complet cu abonament, pauza, reluarea și derularea. [Instrucțiunile LG pentru Developer Mode și informațiile dispozitivului](https://webostv.developer.lge.com/develop/getting-started/developer-mode-app).
 
