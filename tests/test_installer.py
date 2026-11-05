@@ -31,12 +31,14 @@ def success_receipt(operation):
 
 
 class FakeRunner:
-    def __init__(self, metadata=None, edit_receipt=None, missing_receipt=False, loader_returncode=0):
+    def __init__(self, metadata=None, edit_receipt=None, missing_receipt=False, loader_returncode=0,
+                 developer_uid=6303):
         self.metadata = metadata or wizard.REFERENCE.copy()
         self.commands, self.operations, self.remote = [], [], {}
         self.edit_receipt = edit_receipt or (lambda operation, receipt: receipt)
         self.missing_receipt = missing_receipt
         self.loader_returncode = loader_returncode
+        self.developer_uid = developer_uid
         self.archive = b"private original archive fixture"
 
     def run(self, arguments, **options):
@@ -48,7 +50,7 @@ class FakeRunner:
         if command == "ares-device":
             output = "\n".join(key + " : " + value for key, value in self.metadata.items()) + "\n"
         elif command == "ares-novacom" and args[-1] == "id -u":
-            output = "[Info] Set target device : test\n6303\n"
+            output = "[Info] Set target device : test\n" + str(self.developer_uid) + "\n"
         elif command == "node" and Path(args[1]).name == "pull_file.cjs":
             remote, target = args[3], Path(args[4])
             if remote not in self.remote:
@@ -75,7 +77,11 @@ class FakeRunner:
             wizard.save_json(folder / "bundle.json", {
                 "formatVersion": 1, "operation": operation, "remoteStage": stage,
                 "receiptRemote": receipt, "upstreamCommit": wizard.PIN, "persistentRoot": False,
-                "containsLocallyGeneratedAppleResources": operation != "export", "files": hashes})
+                "containsLocallyGeneratedAppleResources": operation != "export",
+                "developerModeUid": int(args[args.index("--developer-uid") + 1]), "files": hashes})
+            data = wizard.read_json(folder / "bundle.json")
+            data["patchProfile"] = args[args.index("--profile") + 1] if "--profile" in args else "c3"
+            wizard.save_json(folder / "bundle.json", data)
         elif len(args) > 1 and Path(args[1]).name == "slopbro.py":
             bundle = wizard.read_json(Path(args[1]).parent / "bundle.json")
             operation = bundle["operation"]
@@ -86,7 +92,7 @@ class FakeRunner:
                            "archiveSHA256": hashlib.sha256(self.archive).hexdigest(), "archiveBytes": len(self.archive),
                            "originalFilesModified": False, "originalDataRead": False, "databaseRecordsRead": False,
                            "persistentRootInstalled": False, "installedPersistentRoot": False, "installedHomebrew": False,
-                           "preservedNativeFlags": {"id": "com.apple.appletv", "version": "16.2.5", "main": "AppleTV",
+                           "preservedNativeFlags": {"id": "com.apple.appletv", "version": "16.2.4" if self.metadata == wizard.C2_METADATA else "16.2.5", "main": "AppleTV",
                                                     "type": "native", "trustLevel": "trusted", "privilegedJail": True}}
                 self.remote[receipt["archivePath"]] = self.archive
             else:
@@ -161,19 +167,53 @@ class InstallerTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="lg-installer-offline-")
         self.root = Path(self.temporary.name)
+        (self.root / wizard.DEVELOPER_MODE_PROFILES).write_text(json.dumps({
+            "formatVersion": 1,
+            "profiles": [{**wizard.REFERENCE, "developerModeUids": [6303, 6322]},
+                         {**wizard.C2_METADATA, "developerModeUids": [6322]}],
+        }))
 
     def tearDown(self):
         self.temporary.cleanup()
 
     def engine(self, **options):
         runner = FakeRunner(**options)
-        return OfflineInstaller(root=self.root, runner=runner, say=lambda text: None, sleep=lambda value: None), runner
+        return OfflineInstaller(root=self.root, runner=runner, ask=lambda text: "da", say=lambda text: None, sleep=lambda value: None), runner
 
     def test_check_never_starts_root(self):
         engine, runner = self.engine()
         engine.run("check", "192.168.1.20")
         self.assertEqual(engine.state["status"], "checked")
         self.assertEqual(runner.operations, [])
+
+    def test_allowed_newer_developer_mode_uid_is_recorded(self):
+        engine, runner = self.engine(developer_uid=6322)
+        engine.run("check", "192.168.1.20")
+        self.assertEqual(engine.state["developerModeUid"], 6322)
+        self.assertEqual(runner.operations, [])
+
+    def test_unknown_developer_mode_uid_stops_before_root(self):
+        engine, runner = self.engine(developer_uid=7000)
+        with self.assertRaises(wizard.Stop):
+            engine.run("apply", "192.168.1.20")
+        self.assertEqual(runner.operations, [])
+
+    def test_profiles_selected_using_detected_tv(self):
+        c2 = {"modelName": "OLED77C21LA", "firmwareVersion": "33.31.68", "sdkVersion": "10.3.1"}
+        (self.root / wizard.DEVELOPER_MODE_PROFILES).write_text(json.dumps({
+            "formatVersion": 1, "profiles": [
+                {**wizard.REFERENCE, "developerModeUids": [6303]},
+                {**c2, "developerModeUids": [6322]},
+            ]}))
+        engine, runner = self.engine(metadata=c2, developer_uid=6322)
+        engine.run("check", "192.168.1.20")
+        self.assertEqual(engine.allowed_developer_uids, frozenset([6322]))
+        self.assertTrue(engine.state["referenceMatches"])
+        engine.run("apply", "192.168.1.20")
+        self.assertEqual(runner.operations, ["export", "apply"])
+        other, _ = self.engine(metadata=c2, developer_uid=6303)
+        with self.assertRaises(wizard.Stop):
+            other.run("check", "192.168.1.20")
 
     def test_unknown_model_refused_before_export(self):
         metadata = wizard.REFERENCE.copy()
@@ -183,6 +223,28 @@ class InstallerTests(unittest.TestCase):
             engine.run("apply", "192.168.1.20")
         self.assertEqual(runner.operations, [])
         self.assertEqual(engine.state["status"], "stopped")
+
+    def test_configuration_cannot_enable_an_unknown_patch_profile(self):
+        unknown = dict(wizard.REFERENCE, modelName="OTHER")
+        (self.root / wizard.DEVELOPER_MODE_PROFILES).write_text(json.dumps({
+            "formatVersion": 1, "profiles": [{**unknown, "developerModeUids": [6303]}]}))
+        engine, runner = self.engine(metadata=unknown)
+        with self.assertRaises(wizard.Stop):
+            engine.run("apply", "192.168.1.20")
+        self.assertEqual(runner.operations, [])
+
+    def test_ambiguous_or_invalid_uid_profiles_refused(self):
+        for values in ([0], [True], ["6322"], [], [6322, 6322]):
+            with self.subTest(values=values):
+                (self.root / wizard.DEVELOPER_MODE_PROFILES).write_text(json.dumps({
+                    "formatVersion": 1, "profiles": [{**wizard.REFERENCE,"developerModeUids":values}]}))
+                with self.assertRaises(wizard.Stop):
+                    wizard.developer_mode_uids(self.root,wizard.REFERENCE)
+        entry = {**wizard.REFERENCE,"developerModeUids":[6303]}
+        (self.root / wizard.DEVELOPER_MODE_PROFILES).write_text(json.dumps({
+            "formatVersion":1,"profiles":[entry,entry]}))
+        with self.assertRaises(wizard.Stop):
+            wizard.developer_mode_uids(self.root,wizard.REFERENCE)
 
     def test_apply_and_restore_order_and_private_state(self):
         engine, runner = self.engine()
@@ -195,6 +257,71 @@ class InstallerTests(unittest.TestCase):
         restore.run("restore", "192.168.1.20", engine.folder)
         self.assertEqual(second.operations, ["restore"])
         self.assertEqual(restore.state["status"], "restored")
+
+    def test_c2_apply_restore_profile_and_loader_version(self):
+        engine, runner = self.engine(metadata=wizard.C2_METADATA, developer_uid=6322)
+        engine.run("apply", "192.168.1.20")
+        self.assertEqual(engine.state["patchProfile"], "c2")
+        for args, options in runner.commands:
+            if len(args) > 1 and Path(args[1]).name == "slopbro.py":
+                self.assertEqual(args[args.index("--webos-version") + 1], "10")
+            if len(args) > 2 and Path(args[1]).name in ("build_patch.py", "check_compatibility.py"):
+                self.assertEqual(args[args.index("--profile") + 1], "c2")
+        restore, second = self.engine(metadata=wizard.C2_METADATA, developer_uid=6322)
+        restore.run("restore", "192.168.1.20", engine.folder)
+        self.assertEqual(second.operations, ["restore"])
+        self.assertEqual(restore.state["status"], "restored")
+
+    def test_c3_loader_stays_on_11(self):
+        engine, runner = self.engine()
+        engine.run("apply", "192.168.1.20")
+        for args, options in runner.commands:
+            if len(args) > 1 and Path(args[1]).name == "slopbro.py":
+                self.assertEqual(args[args.index("--webos-version") + 1], "11")
+
+    def test_cross_profile_restore_refused_before_root(self):
+        engine, _ = self.engine()
+        engine.run("apply", "192.168.1.20")
+        restore, runner = self.engine(metadata=wizard.C2_METADATA, developer_uid=6322)
+        with self.assertRaises(wizard.Stop):
+            restore.run("restore", "192.168.1.20", engine.folder)
+        self.assertEqual(runner.operations, [])
+
+    def test_changed_device_before_export_stops_before_root(self):
+        engine, runner = self.engine()
+        def decline_and_change(question):
+            runner.metadata = wizard.C2_METADATA
+            return "da"
+        engine.ask = decline_and_change
+        with self.assertRaises(wizard.Stop):
+            engine.run("apply", "192.168.1.20")
+        self.assertEqual(runner.operations, [])
+
+    def test_changed_uid_before_export_stops_before_root(self):
+        engine, runner = self.engine()
+        def change_uid(question):
+            runner.developer_uid = 6322
+            return "da"
+        engine.ask = change_uid
+        with self.assertRaises(wizard.Stop):
+            engine.run("apply", "192.168.1.20")
+        self.assertEqual(runner.operations, [])
+
+    def test_legacy_c3_backup_can_restore(self):
+        engine, _ = self.engine()
+        engine.run("apply", "192.168.1.20")
+        saved = wizard.read_json(engine.folder / "session.json")
+        del saved["developerModeUid"]
+        del saved["patchProfile"]
+        wizard.save_json(engine.folder / "session.json", saved)
+        manifest = engine.folder / "export-bundle/bundle.json"
+        data = wizard.read_json(manifest)
+        del data["developerModeUid"]
+        del data["patchProfile"]
+        wizard.save_json(manifest, data)
+        restore, runner = self.engine()
+        restore.run("restore", "192.168.1.20", engine.folder)
+        self.assertEqual(runner.operations, ["restore"])
 
     def test_receipt_beats_loader_returncode(self):
         engine, runner = self.engine(loader_returncode=1)

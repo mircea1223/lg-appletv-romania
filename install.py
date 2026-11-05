@@ -20,10 +20,15 @@ import sys
 import time
 import urllib.request
 import uuid
+from tools.c2_profile import METADATA as C2_METADATA
 
 
 ROOT = Path(__file__).resolve().parent
 REFERENCE = {"modelName": "OLED77C31LA", "firmwareVersion": "43.21.71", "sdkVersion": "11.2.0"}
+PROFILE_METADATA = {"c3": REFERENCE, "c2": C2_METADATA}
+PROFILE_VERSION = {"c3": "16.2.5", "c2": "16.2.4"}
+PROFILE_WEBOS = {"c3": "11", "c2": "10"}
+DEVELOPER_MODE_PROFILES = "developer_mode_profiles.json"
 APP = "media/cryptofs/apps/usr/palm/applications/com.apple.appletv"
 IMAGE = "media/cryptofs/apps/usr/palm/data/images/com.apple.appletv/data.img"
 CLI_VERSION = "3.2.6"
@@ -128,6 +133,24 @@ def validate_ip(value):
     return str(address)
 
 
+def developer_mode_uids(root, metadata):
+    """Load the explicit Developer Mode UID allowlist for one exact TV profile."""
+    data = read_json(root / DEVELOPER_MODE_PROFILES)
+    require(data.get("formatVersion") == 1 and isinstance(data.get("profiles"), list),
+            "Configurația UID Developer Mode nu este validă.")
+    matches = []
+    for profile in data["profiles"]:
+        if not isinstance(profile, dict) or any(profile.get(key) != metadata.get(key) for key in REFERENCE):
+            continue
+        values = profile.get("developerModeUids")
+        require(isinstance(values, list) and values and all(
+            isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= 65535 for value in values
+        ) and len(set(values)) == len(values), "Lista UID Developer Mode nu este validă.")
+        matches.append(frozenset(values))
+    require(len(matches) == 1, "Nu există un profil UID unic pentru modelul, firmware-ul și SDK-ul verificate.")
+    return matches[0]
+
+
 class Runner:
     def __init__(self):
         self.environment = os.environ.copy()
@@ -195,7 +218,7 @@ def prerequisites(runner, ask=input, say=print, root=ROOT):
                 "Comanda " + name + " nu provine din CLI 3.2.6. Verifică PATH.")
 
 
-def validate_bundle(folder, operation):
+def validate_bundle(folder, operation, developer_uid, profile="c3"):
     metadata = read_json(folder / "bundle.json")
     stage = metadata.get("remoteStage", "")
     match = STAGE.fullmatch(stage) if isinstance(stage, str) else None
@@ -204,6 +227,8 @@ def validate_bundle(folder, operation):
                "/media/developer/temp/lg-appletv-ro-" + stage.rsplit("/", 1)[1] + "-result.json")
     require(metadata.get("formatVersion") == 1 and metadata.get("operation") == operation and
             metadata.get("upstreamCommit") == PIN and metadata.get("persistentRoot") is False and
+            metadata.get("developerModeUid", 6303 if profile == "c3" else None) == developer_uid and
+            metadata.get("patchProfile", "c3") == profile and
             metadata.get("receiptRemote") == receipt and
             metadata.get("containsLocallyGeneratedAppleResources") is (operation != "export"),
             "Manifestul pachetului temporar nu corespunde operației.")
@@ -218,7 +243,7 @@ def validate_bundle(folder, operation):
     return metadata
 
 
-def validate_export(result, bundle):
+def validate_export(result, bundle, profile="c3"):
     stage = bundle["remoteStage"]
     require(result.get("status") == "success" and result.get("kind") == "lg-appletv-ro-export-v1" and
             result.get("appId") == "com.apple.appletv" and result.get("stage") == stage and
@@ -231,7 +256,7 @@ def validate_export(result, bundle):
         require(result.get(flag) is False, "Backupul nu confirmă păstrarea datelor și lipsa persistenței.")
     identity = result.get("preservedNativeFlags", {})
     require(isinstance(identity, dict) and all(identity.get(key) == value for key, value in {
-        "id": "com.apple.appletv", "version": "16.2.5", "main": "AppleTV", "type": "native",
+        "id": "com.apple.appletv", "version": PROFILE_VERSION[profile], "main": "AppleTV", "type": "native",
         "trustLevel": "trusted", "privilegedJail": True}.items()), "Identitatea aplicației native diferă.")
 
 
@@ -269,6 +294,8 @@ class Installer:
         self.root, self.runner, self.ask, self.say, self.sleep = root, runner or Runner(), ask, say, sleep
         self.folder = None
         self.state = {}
+        self.allowed_developer_uids = frozenset()
+        self.profile = None
 
     def mark(self, status, **values):
         self.state.update(values)
@@ -292,21 +319,35 @@ class Installer:
         self.say("În Developer Mode pe TV: Dev Mode Status activ, apoi Key Server activ.")
         self.say("Introdu passphrase-ul direct la solicitarea LG de mai jos. Nu îl publica.")
         self.runner.run(["ares-novacom", "--device", device, "--getkey"], interactive=True, timeout=180)
-        uid_output = self.runner.run(["ares-novacom", "--device", device, "--run", "id -u"]).stdout
+        developer_uid = self.device_uid()
+        metadata = self.device_info()
+        self.mark("identified", developerModeUid=developer_uid, metadata=metadata)
+        self.allowed_developer_uids = developer_mode_uids(self.root, metadata)
+        matches = [name for name, expected in PROFILE_METADATA.items() if metadata == expected]
+        require(len(matches) == 1, "Model/firmware/SDK fără un profil de patch verificat. Oprit înainte de root.")
+        self.profile = matches[0]
+        require(developer_uid in self.allowed_developer_uids,
+                "UID Developer Mode " + str(developer_uid) + " nu este acceptat de profilul acestui TV. Oprit.")
+        self.mark("connected", developerModeUid=developer_uid, patchProfile=self.profile)
+        return metadata
+
+    def device_uid(self):
+        uid_output = self.runner.run(["ares-novacom", "--device", self.state["device"], "--run", "id -u"]).stdout
         lines = [line.strip() for line in uid_output.splitlines() if line.strip() and
                  not re.fullmatch(r"\[Info\] Set target device : [A-Za-z0-9_.-]+", line.strip())]
-        require(lines == ["6303"], "Conexiunea nu folosește utilizatorul Developer Mode așteptat. Oprit.")
-        self.mark("connected")
-        return self.device_info()
+        require(len(lines) == 1 and lines[0].isdigit(), "Nu pot confirma UID-ul Developer Mode. Oprit.")
+        return int(lines[0])
 
     def device_info(self):
         result = self.runner.run(["ares-device", "--system-info", "--device", self.state["device"]])
         return parse_system_info(result.stdout)
 
     def gate(self, metadata):
-        require(metadata == REFERENCE,
-                "Model/firmware/SDK neverificat. Oprit înainte de root. "
-                "Configurația acceptată acum: OLED77C31LA / 43.21.71 / SDK 11.2.0.")
+        require(self.profile in PROFILE_METADATA and metadata == PROFILE_METADATA[self.profile],
+                "Model/firmware/SDK diferă de profilul selectat. Oprit înainte de root.")
+
+    def profile_arguments(self):
+        return ["--profile", "c2"] if self.profile == "c2" else []
 
     def tool(self, name, arguments):
         return self.runner.run([sys.executable, self.root / "tools" / name] + list(arguments), timeout=240)
@@ -341,13 +382,15 @@ class Installer:
 
     def prepare(self, operation, upstream, original=None, export=None, archive=None):
         folder = self.folder / (operation + "-bundle")
-        arguments = [operation, "--upstream", upstream, "--output", folder]
+        arguments = [operation, "--upstream", upstream, "--output", folder,
+                     "--developer-uid", str(self.state["developerModeUid"])]
+        arguments += self.profile_arguments()
         if original is not None:
             arguments += ["--original", original]
         if export is not None:
             arguments += ["--cleanup-export", export, "--archive", archive]
         self.tool("prepare_bundle.py", arguments)
-        return folder, validate_bundle(folder, operation)
+        return folder, validate_bundle(folder, operation, self.state["developerModeUid"], self.profile)
 
     def pull(self, remote, target, retries=1):
         for attempt in range(retries):
@@ -363,11 +406,14 @@ class Installer:
     def execute(self, operation, folder, bundle):
         # Re-read both the real device configuration and all bundle hashes immediately before root.
         self.gate(self.device_info())
-        require(validate_bundle(folder, operation) == bundle, "Pachetul s-a schimbat înainte de execuție.")
+        require(self.device_uid() == self.state["developerModeUid"],
+                "UID-ul Developer Mode s-a schimbat înainte de root. Oprit.")
+        require(validate_bundle(folder, operation, self.state["developerModeUid"], self.profile) == bundle,
+                "Pachetul s-a schimbat înainte de execuție.")
         self.mark(operation + "-started", activeBundle=str(folder.name))
         self.say("Acces root temporar pentru " + operation + ". Acceptă asocierea afișată pe TV.")
         try:
-            self.runner.run([sys.executable, folder / "slopbro.py", "--webos-version", "11",
+            self.runner.run([sys.executable, folder / "slopbro.py", "--webos-version", PROFILE_WEBOS[self.profile],
                              "--asset-source", "dir", "--debug", self.state["ip"]],
                             cwd=folder, interactive=True, timeout=420, check=False)
         except Stop:
@@ -386,7 +432,7 @@ class Installer:
                                      "Starea aplicației trebuie verificată; nu relua automat.") from error
             raise
         if operation == "export":
-            validate_export(result, bundle)
+            validate_export(result, bundle, self.profile)
         else:
             try:
                 validate_transaction(result, operation)
@@ -401,7 +447,7 @@ class Installer:
         self.tool("verify_export.py", ["--archive", archive, "--result", receipt, "--output", output])
         source = output / APP
         result = self.runner.run([sys.executable, self.root / "check_compatibility.py", "--source", source,
-                                  "--image", output / IMAGE], timeout=90)
+                                  "--image", output / IMAGE] + self.profile_arguments(), timeout=90)
         try:
             report = json.loads(result.stdout)
         except ValueError as error:
@@ -418,6 +464,9 @@ class Installer:
 
     def apply(self):
         self.gate(self.state["metadata"])
+        self.say("Deschide Apple TV din Home și las-o pornită înainte de export.")
+        require(self.ask("Apple TV este deschisă? [da/nu]: ").strip().lower() in ("da", "d", "yes", "y"),
+                "Deschide Apple TV și reia procedura înainte de export.")
         upstream = self.fetch_upstream()
         export_folder, export_bundle = self.prepare("export", upstream)
         export = self.execute("export", export_folder, export_bundle)
@@ -426,7 +475,7 @@ class Installer:
         require(archive.stat().st_size == export["archiveBytes"], "Mărimea backupului diferă de confirmarea TV.")
         source = self.verify_original(archive, self.folder / "export-result.json", self.folder / "original")
         self.mark("backup-verified", archiveSHA256=file_sha(archive))
-        self.tool("build_patch.py", ["--source", source, "--output", self.folder / "patched"])
+        self.tool("build_patch.py", ["--source", source, "--output", self.folder / "patched"] + self.profile_arguments())
         for relative in RESOURCE_PATHS:
             self.runner.run(["node", "--check", self.folder / "patched" / relative])
         folder, bundle = self.prepare("apply", upstream, source, export_folder / "bundle.json", archive)
@@ -440,12 +489,16 @@ class Installer:
         private_directory(previous)
         saved = read_json(previous / "session.json")
         require(saved.get("formatVersion") == 1 and saved.get("operation") == "apply" and
-                saved.get("status") == "applied" and saved.get("metadata") == REFERENCE and
+                saved.get("status") == "applied" and saved.get("metadata") == self.state["metadata"] and
+                saved.get("patchProfile", "c3") == self.profile and
                 saved.get("ip") == self.state["ip"], "Backupul nu aparține unei aplicări confirmate la acest IP.")
         validate_transaction(read_json(previous / "apply-result.json"), "apply")
-        old_bundle = validate_bundle(previous / "export-bundle", "export")
+        old_uid = saved.get("developerModeUid", 6303 if self.profile == "c3" else None)
+        require(isinstance(old_uid, int) and not isinstance(old_uid, bool) and old_uid in self.allowed_developer_uids,
+                "Backupul nu conține un UID Developer Mode acceptat.")
+        old_bundle = validate_bundle(previous / "export-bundle", "export", old_uid, self.profile)
         old_result = read_json(previous / "export-result.json")
-        validate_export(old_result, old_bundle)
+        validate_export(old_result, old_bundle, self.profile)
         archive = previous / "apple-tv-original.tar"
         require(file_sha(archive) == saved.get("archiveSHA256") == old_result["archiveSHA256"],
                 "Backupul original a fost modificat.")
@@ -487,9 +540,8 @@ class Installer:
             self.say("TV: " + metadata["modelName"] + " / firmware " + metadata["firmwareVersion"] +
                      " / SDK " + metadata["sdkVersion"])
             if operation == "check":
-                self.mark("checked", referenceMatches=metadata == REFERENCE)
-                self.say("Configurația corespunde referinței; fișierele și redarea nu au fost testate." if metadata == REFERENCE
-                         else "Configurație neverificată. Nicio operație root nu a pornit.")
+                self.mark("checked", referenceMatches=True)
+                self.say("Profil " + self.profile.upper() + " identificat; fișierele și redarea nu au fost testate.")
             elif operation == "apply":
                 self.apply()
             elif operation == "restore":

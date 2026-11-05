@@ -110,10 +110,19 @@ def supplied_text(value):
 
 
 def assess(args):
+    reference, inputs, identity, image_sha = REFERENCE, INPUTS, IDENTITY, IMAGE_SHA256
+    if getattr(args, "profile", None) == "c2":
+        from tools.c2_profile import METADATA, VERSION, PROTECTED, IMAGE_SHA
+        reference = {"model": METADATA["modelName"], "firmware": METADATA["firmwareVersion"],
+                     "sdk": METADATA["sdkVersion"], "applicationVersion": VERSION,
+                     "authenticationAndSubscriptionPlayback": "unverified"}
+        inputs = {name: (PROTECTED.get(name, value[0]), value[1]) for name, value in INPUTS.items()}
+        identity = dict(IDENTITY, version=VERSION)
+        image_sha = IMAGE_SHA
     supplied = {name: getattr(args, name) for name in ("model", "firmware", "sdk")}
     supplied_keys = [name for name, value in supplied.items() if value is not None]
     config_match = None
-    if any(supplied[name] != REFERENCE[name] for name in supplied_keys):
+    if any(supplied[name] != reference[name] for name in supplied_keys):
         config_match = False
     elif len(supplied_keys) == 3:
         config_match = True
@@ -123,7 +132,7 @@ def assess(args):
         "status": "invalid-source",
         "readOnly": True,
         "networkContactPerformed": False,
-        "referenceConfiguration": REFERENCE,
+        "referenceConfiguration": reference,
         "suppliedDeviceMetadata": supplied,
         "suppliedMetadataMatchesReference": config_match,
         "suppliedMetadataIndependentlyVerified": False,
@@ -149,7 +158,7 @@ def assess(args):
         return report, 2
 
     checks = []
-    for relative, (expected, maximum) in INPUTS.items():
+    for relative, (expected, maximum) in inputs.items():
         path = source / relative
         # A symlinked res/ could otherwise point outside the selected export.
         parents_safe = all(
@@ -170,7 +179,7 @@ def assess(args):
     if checks[-1]["matches"]:
         try:
             manifest = json.loads((source / "appinfo.json").read_text(encoding="utf-8"))
-            identity_matches = all(manifest.get(key) == value for key, value in IDENTITY.items())
+            identity_matches = all(manifest.get(key) == value for key, value in identity.items())
         except (OSError, ValueError, UnicodeError, AttributeError):
             pass
     report["packageAssessment"]["nativeIdentityMatches"] = identity_matches
@@ -179,7 +188,7 @@ def assess(args):
 
     image_matches = True
     if args.image is not None:
-        image_row = check_file(args.image, "data.img", IMAGE_SHA256, 512 * 1024 * 1024)
+        image_row = check_file(args.image, "data.img", image_sha, 512 * 1024 * 1024)
         report["installedImageAssessment"] = image_row
         image_matches = image_row["matches"]
     accepted = inputs_match and image_matches
@@ -197,6 +206,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True,
                         help="Exported original directory containing AppleTV, appinfo.json and res/")
+    parser.add_argument("--profile", choices=["c2"], help="Exact experimental C2 input profile")
     parser.add_argument("--image", type=Path,
                         help="Optional private export of the original registered data.img")
     parser.add_argument("--model", type=supplied_text, help="Exact model, e.g. OLED77C31LA")

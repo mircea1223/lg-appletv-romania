@@ -104,15 +104,15 @@ function verifySnapshot(snapshot) {
     snapshot.files.map(file => file.path.substring(file.path.lastIndexOf('/') + 1)).sort().join('|'),
   'Staging contents changed');
   snapshot.files.forEach(file => {
-    identityMatches(file.path, file.info, [0, 6303]);
-    assert(readChecked(file.path, [0, 6303]).sha === file.sha, 'Staging contents changed');
+    identityMatches(file.path, file.info, [0, __DEVELOPER_UID__]);
+    assert(readChecked(file.path, [0, __DEVELOPER_UID__]).sha === file.sha, 'Staging contents changed');
   });
 }
 function deleteSnapshot(snapshot) {
   verifySnapshot(snapshot);
   for (const file of snapshot.files) {
     noStageMounts(snapshot.path);
-    identityMatches(file.path, file.info, [0, 6303]);
+    identityMatches(file.path, file.info, [0, __DEVELOPER_UID__]);
     fs.unlinkSync(file.path);
   }
   const current = directory(snapshot.path, [0], true);
@@ -247,7 +247,7 @@ function finishReceipt(value) {
   fs.ftruncateSync(receiptFd, bytes.length);
   fs.fchmodSync(receiptFd, 0o600);
   fs.fsyncSync(receiptFd);
-  fs.fchownSync(receiptFd, 6303, 5000);
+  fs.fchownSync(receiptFd, __DEVELOPER_UID__, 5000);
   fs.fsyncSync(receiptFd);
   syncDir(receiptParent);
 }
@@ -279,7 +279,7 @@ async function run() {
         /^\/media\/internal\/downloads\/lg-appletv-ro-export-[A-Za-z0-9_-]{8,100}$/.test(cleanup.stage) &&
         cleanup.stage !== stage && /^[0-9a-f]{64}$/.test(cleanup.archiveSHA256), 'Invalid export cleanup request');
       exportSnapshot = stageSnapshot(cleanup.stage,
-        ['main.js', 'package.json', 'transaction.json', 'apple-tv-original.tar', 'result.json'], [0, 6303], 0o711);
+        ['main.js', 'package.json', 'transaction.json', 'apple-tv-original.tar', 'result.json'], [0, __DEVELOPER_UID__], 0o711);
       const archive = exportSnapshot.files.find(file => file.path === cleanup.stage + '/apple-tv-original.tar');
       const report = exportSnapshot.files.find(file => file.path === cleanup.stage + '/result.json');
       assert(report.bytes.length <= 16384 && archive.sha === cleanup.archiveSHA256, 'Export archive verification failed');

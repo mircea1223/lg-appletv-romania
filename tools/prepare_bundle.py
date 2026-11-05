@@ -37,6 +37,17 @@ def load_patch_builder():
     spec.loader.exec_module(module)
     return module
 
+
+def adapt_c2_transaction(source, builder):
+    """Pin the observed C2 native inputs and all three overlay directories."""
+    from c2_profile import PROTECTED, IMAGE_SHA, LOWER, UPPER, WORK
+    for name, expected in PROTECTED.items():
+        source = replace_once(source, builder.PROTECTED_FILES[name], expected)
+    source = replace_once(source, 'e80efaa39e92afe81b6218e6bb11d2c1e40d46b25f371d7cb18cf19807116221', IMAGE_SHA)
+    before = "    /(?:^|,)upperdir=\\/media\\/data\\/data\\/com\\.apple\\.appletv(?:,|$)/.test(line));"
+    after = "    " + json.dumps(['lowerdir='+LOWER, 'upperdir='+UPPER, 'workdir='+WORK]) + ".every(option => line.split(' - ')[1].split(' ').slice(2).join(' ').split(',').includes(option)));"
+    return replace_once(source, before, after)
+
 def build(args):
     upstream = args.upstream.resolve(strict=True)
     inputs = {}
@@ -54,6 +65,21 @@ def build(args):
     if output == upstream or upstream in output.parents:
         raise ValueError('Keep generated bundle outside upstream source')
     operation = args.operation
+    profile = getattr(args, 'profile', None)
+    if profile not in (None, 'c2'):
+        raise ValueError('Unknown patch profile')
+    if profile == 'c2':
+        if args.developer_uid != 6322:
+            raise ValueError('C2 profile requires observed Developer Mode UID 6322')
+    if profile == 'c2' and operation != 'export':
+        if args.original is None:
+            raise ValueError('--original is required for the C2 profile')
+        from c2_profile import IMAGE_SHA
+        image = args.original.resolve(strict=True).parents[1] / 'data/images/com.apple.appletv/data.img'
+        if image.is_symlink() or not image.is_file() or digest(image.read_bytes()) != IMAGE_SHA:
+            raise ValueError('C2 original installed image mismatch')
+    if not isinstance(args.developer_uid, int) or isinstance(args.developer_uid, bool) or not 1 <= args.developer_uid <= 65535:
+        raise ValueError('Invalid Developer Mode UID')
     stage = '/media/internal/downloads/lg-appletv-ro-' + operation + '-' + uuid.uuid4().hex[:16]
     payloads = {}
     if operation == 'export':
@@ -72,7 +98,7 @@ def build(args):
         builder = load_patch_builder()
         with tempfile.TemporaryDirectory(prefix='lg-appletv-guide-') as temporary:
             generated = Path(temporary) / 'patch'
-            manifest = builder.build(original, generated)
+            manifest = builder.build(original, generated, profile)
             files = []
             for row in manifest['files']:
                 name = Path(row['path']).name
@@ -106,7 +132,13 @@ def build(args):
     source = template.read_text(encoding='utf-8')
     if source.count('__STAGE__') != 1 or source.count('__PLAN_SHA__') != 1:
         raise ValueError('Unexpected root module placeholders')
+    expected_uid_placeholders = 2 if operation == 'export' else 5
+    if source.count('__DEVELOPER_UID__') != expected_uid_placeholders:
+        raise ValueError('Unexpected Developer Mode UID placeholders')
     source = source.replace('__STAGE__', stage).replace('__PLAN_SHA__', digest(raw_plan))
+    source = source.replace('__DEVELOPER_UID__', str(args.developer_uid))
+    if profile == 'c2' and operation != 'export':
+        source = adapt_c2_transaction(source, builder)
     launcher = inputs['slopbro.py'].decode('utf-8')
     launcher = replace_once(launcher, 'SHELL_SCRIPT = "autoroot.sh"', 'SHELL_SCRIPT = "transaction.json"')
     before = 'SERVICE_FILES = [\n    "package.json",\n    "main.js",\n]'
@@ -124,6 +156,8 @@ def build(args):
     metadata = {'formatVersion': 1, 'operation': operation, 'remoteStage': stage,
                 'receiptRemote': receipt, 'upstreamCommit': PINNED_COMMIT,
                 'persistentRoot': False, 'containsLocallyGeneratedAppleResources': bool(payloads),
+                'developerModeUid': args.developer_uid,
+                'patchProfile': profile or 'c3',
                 'files': {name: digest(raw) for name, raw in artifacts.items()}}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.mkdir(mode=0o700)
@@ -152,6 +186,9 @@ def main():
     parser.add_argument('--original', type=Path)
     parser.add_argument('--cleanup-export', type=Path, help='bundle.json of a previous export operation')
     parser.add_argument('--archive', type=Path, help='Downloaded private archive, verified before export-stage cleanup')
+    parser.add_argument('--developer-uid', required=True, type=int,
+                        help='Validated numeric UID of the connected LG Developer Mode user')
+    parser.add_argument('--profile', choices=['c2'], help='Experimental exact C2 profile; offline preparation only')
     args = parser.parse_args()
     try:
         print(json.dumps(build(args), indent=2))

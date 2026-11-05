@@ -2,7 +2,7 @@
 
 Ghidul este pentru aplicația Apple TV **deja instalată**, care afișează „Apple TV is not available” în România. Ai în continuare nevoie de contul și abonamentul tău Apple.
 
-Reparația inițială a mers pe **C3 OLED77C31LA / firmware 43.21.71 / SDK 11.2.0 / Apple TV 16.2.5**. Asistentul de mai jos este nou și a fost testat numai offline. Pe alte configurații se oprește înainte de root; [alte LG-uri încă nu sunt confirmate](COMPATIBILITY.md).
+Sunt incluse profiluri exacte pentru **C3 OLED77C31LA / 43.21.71 / SDK 11.2.0 / Apple TV 16.2.5** și **C2 OLED77C21LA / 33.31.68 / SDK 10.3.1 / Apple TV 16.2.4**. Pe C3, procedura inițială are autentificare și redare confirmate; pe C2, exportul și aplicarea au rapoarte de succes, dar redarea și restaurarea live nu sunt încă verificate. Asistentul unificat este testat offline. [Limitele validării](COMPATIBILITY.md).
 
 ## 1. Pregătește calculatorul
 
@@ -43,6 +43,8 @@ Meniul are trei opțiuni:
 
 Alege **2** pentru reparație; asistentul verifică singur televizorul înainte să continue. Opțiunea **1** este pentru verificare separată. Urmează mesajele din fereastră și acceptă asocierea pe TV dacă apare. Nu închide fereastra până când asistentul termină.
 
+Înainte să confirmi exportul în asistent, deschide Apple TV din Home și las-o pornită. Pe C2, fișierele originale au devenit accesibile exportului după deschiderea aplicației. Asistentul alege automat loaderul pentru SDK 10 (C2) sau 11 (C3), profilul de hash-uri și UID-ul Developer Mode acceptat.
+
 Backupul se păstrează în folderul **backup** al proiectului. Nu îl șterge și nu îl încărca pe GitHub.
 
 ## 4. Verifică dacă merge
@@ -50,6 +52,8 @@ Backupul se păstrează în folderul **backup** al proiectului. Nu îl șterge �
 Deschide pictograma obișnuită **Apple TV** din Home, autentifică-te și pornește un episod inclus în abonament. Lasă-l câteva minute, apoi încearcă pauza și derularea. Meniurile sau un trailer nu sunt suficiente pentru verificare.
 
 Reparația rămâne instalată după terminare. Accesul root se încheie; nu se instalează root la pornirea televizorului.
+
+Pagina SlopBro poate rămâne pe ecran după terminare: apasă Home și deschide Apple TV. Pe C2, persistența după restart este încă de confirmat. Patchul blochează actualizările JavaScript interne cât timp este activ.
 
 ## Dacă vrei să revii la original
 
